@@ -1,0 +1,4 @@
+test_ratio: 0.3
+automl_max_evals: 10
+gcp_project_id: "purchase-predict-project" 
+gcs_primary_folder: "purchase-predict-ryad/primary.csv" 
