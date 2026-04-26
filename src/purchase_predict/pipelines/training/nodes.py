@@ -10,6 +10,13 @@ from lightgbm.sklearn import LGBMClassifier
 from hyperopt import hp, tpe, fmin
 
 import warnings
+import os
+import mlflow
+import mlflow.sklearn
+from mlflow.models import infer_signature
+from matplotlib import pyplot as plt
+import matplotlib.ticker as mtick
+from sklearn.metrics import precision_recall_curve, PrecisionRecallDisplay
 
 warnings.filterwarnings("ignore")
 
@@ -110,13 +117,37 @@ def optimize_hyp(
     return fmin(fn=objective, space=search_space, algo=tpe.suggest, max_evals=max_evals)
 
 
-def auto_ml(
-    X_train: np.ndarray, y_train: np.ndarray, X_test: np.ndarray, y_test: np.ndarray, max_evals: int = 40
-) -> dict[str, BaseEstimator]:
-    """Runs training of multiple model instances and selects the most accurate."""
-    X = pd.concat((X_train, X_test))
-    y = pd.concat((y_train, y_test))
+def save_pr_curve(X, y, model):
+    os.makedirs(os.path.expanduser("data/08_reporting"), exist_ok=True)
+    plt.figure(figsize=(16, 11))
+    prec, recall, _ = precision_recall_curve(y, model.predict_proba(X)[:, 1], pos_label=1)
+    pr_display = PrecisionRecallDisplay(precision=prec, recall=recall).plot(ax=plt.gca())
+    plt.title("PR Curve", fontsize=16)
+    plt.gca().xaxis.set_major_formatter(mtick.PercentFormatter(1, 0))
+    plt.gca().yaxis.set_major_formatter(mtick.PercentFormatter(1, 0))
+    plt.savefig(os.path.expanduser("data/08_reporting/pr_curve.png"))
+    plt.close()
 
+
+def auto_ml(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    X_test: np.ndarray,
+    y_test: np.ndarray,
+    max_evals: int = 40,
+    log_to_mlflow: bool = False,
+    experiment_id: int = -1,
+) -> dict[str, BaseEstimator | str]:
+    """Runs training of multiple model instances and selects the most accurate."""
+
+    # 1. Préparation sécurisée des données (Adaptation pour le parseur ty/astral du TP)
+    X = pd.concat([pd.DataFrame(X_train), pd.DataFrame(X_test)], ignore_index=True)
+
+    y_train_flat = y_train.squeeze() if isinstance(y_train, pd.DataFrame) else y_train
+    y_test_flat = y_test.squeeze() if isinstance(y_test, pd.DataFrame) else y_test
+    y = pd.concat([pd.Series(y_train_flat), pd.Series(y_test_flat)], ignore_index=True)
+
+    # 2. Entraînement et optimisation (Ton code d'origine)
     opt_models = []
     for model_specs in MODELS:
         optimum_params = optimize_hyp(
@@ -126,7 +157,7 @@ def auto_ml(
             metric=lambda x, y: -f1_score(x, y),
             max_evals=max_evals,
         )
-        print("done")
+        print(f"✅ Optimisation terminée pour : {model_specs['name']}")
 
         model = train_model(
             model_specs["model_class"](),
@@ -142,5 +173,47 @@ def auto_ml(
             }
         )
 
+    # Sélection du meilleur modèle
     best_model = max(opt_models, key=lambda x: x["score"])
-    return dict(model=best_model["model"])
+
+    # ---------------------------------------------------------
+    # 3. INTÉGRATION MLFLOW
+    # ---------------------------------------------------------
+    run_id = ""
+    mlflow_model_uri = ""
+
+    if log_to_mlflow:
+        # Configuration du serveur
+        mlflow.set_tracking_uri(os.getenv("MLFLOW_SERVER", "http://localhost:5000"))
+
+        # Gestion de l'ID d'expérience
+        exp_id = str(experiment_id)
+        try:
+            mlflow.get_experiment(exp_id)
+        except mlflow.exceptions.MlflowException:
+            if experiment_id == 1:
+                exp_id = mlflow.create_experiment("purchase_predict")
+
+        # Lancement du Tracking
+        with mlflow.start_run(experiment_id=exp_id) as run:
+            run_id = run.info.run_id
+
+            # Enregistrement Paramètres & Score
+            mlflow.log_params(best_model["params"])
+            mlflow.log_metric("f1", best_model["score"])
+
+            # Création et envoi du graphique PR Curve
+            save_pr_curve(X_test, y_test, best_model["model"])
+            mlflow.log_artifact("data/08_reporting/pr_curve.png", artifact_path="plots")
+
+            # Signature et envoi du Modèle (.pkl)
+            signature = infer_signature(X_train, best_model["model"].predict(X_train))
+            mlflow_info = mlflow.sklearn.log_model(best_model["model"], "model", signature=signature)
+            mlflow_model_uri = mlflow_info.model_uri
+
+    # 4. On retourne le dictionnaire enrichi à Kedro
+    return {
+        "model": best_model["model"],
+        "mlflow_run_id": run_id,
+        "mlflow_model_uri": mlflow_model_uri,
+    }
