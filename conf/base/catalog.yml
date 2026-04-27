@@ -30,3 +30,7 @@ mlflow_model_uri:
 
 mlflow_model_version:
   type: MemoryDataset
+
+transform_pipeline:
+  type: kedro_datasets.pickle.PickleDataset  # <--- Note le changement ici
+  filepath: data/04_feature/transform_pipeline.pkl

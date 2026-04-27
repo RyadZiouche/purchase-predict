@@ -121,7 +121,10 @@ def save_pr_curve(X, y, model):
     os.makedirs(os.path.expanduser("data/08_reporting"), exist_ok=True)
     plt.figure(figsize=(16, 11))
     prec, recall, _ = precision_recall_curve(y, model.predict_proba(X)[:, 1], pos_label=1)
-    pr_display = PrecisionRecallDisplay(precision=prec, recall=recall).plot(ax=plt.gca())
+
+    # Correction linter: on ne stocke plus dans la variable inutilisée pr_display
+    PrecisionRecallDisplay(precision=prec, recall=recall).plot(ax=plt.gca())
+
     plt.title("PR Curve", fontsize=16)
     plt.gca().xaxis.set_major_formatter(mtick.PercentFormatter(1, 0))
     plt.gca().yaxis.set_major_formatter(mtick.PercentFormatter(1, 0))
@@ -140,14 +143,14 @@ def auto_ml(
 ) -> dict[str, BaseEstimator | str]:
     """Runs training of multiple model instances and selects the most accurate."""
 
-    # 1. Préparation sécurisée des données (Adaptation pour le parseur ty/astral du TP)
+    # 1. Préparation sécurisée des données
     X = pd.concat([pd.DataFrame(X_train), pd.DataFrame(X_test)], ignore_index=True)
 
     y_train_flat = y_train.squeeze() if isinstance(y_train, pd.DataFrame) else y_train
     y_test_flat = y_test.squeeze() if isinstance(y_test, pd.DataFrame) else y_test
     y = pd.concat([pd.Series(y_train_flat), pd.Series(y_test_flat)], ignore_index=True)
 
-    # 2. Entraînement et optimisation (Ton code d'origine)
+    # 2. Entraînement et optimisation
     opt_models = []
     for model_specs in MODELS:
         optimum_params = optimize_hyp(
@@ -205,6 +208,10 @@ def auto_ml(
             # Création et envoi du graphique PR Curve
             save_pr_curve(X_test, y_test, best_model["model"])
             mlflow.log_artifact("data/08_reporting/pr_curve.png", artifact_path="plots")
+
+            # --- NOUVEAUTÉ : Envoi du pipeline de transformation ---
+            if os.path.exists("data/04_feature/transform_pipeline.pkl"):
+                mlflow.log_artifact("data/04_feature/transform_pipeline.pkl")
 
             # Signature et envoi du Modèle (.pkl)
             signature = infer_signature(X_train, best_model["model"].predict(X_train))

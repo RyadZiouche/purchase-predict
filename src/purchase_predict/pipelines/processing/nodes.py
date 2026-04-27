@@ -3,6 +3,10 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
 
 
+from sklearn.preprocessing import LabelEncoder
+import pandas as pd
+
+
 def encode_features(
     dataset: pd.DataFrame,
 ) -> dict[str, pd.DataFrame | dict[str, LabelEncoder]]:
@@ -13,6 +17,7 @@ def encode_features(
 
     encoders = []
     transform_pipeline: dict[str, LabelEncoder] = {}
+
     for label in ["category", "sub_category", "brand"]:
         features[label] = features[label].astype("string").fillna("unknown")
         encoder = LabelEncoder()
@@ -21,7 +26,9 @@ def encode_features(
         transform_pipeline[label] = encoder
 
     features["weekday"] = features["weekday"].astype(int)
-    return dict(features=features, transform_pipeline=transform_pipeline)
+
+    # On retourne maintenant les données ET le dictionnaire d'encodeurs
+    return {"features": features, "transform_pipeline": transform_pipeline}
 
 
 def split_dataset(dataset: pd.DataFrame, test_ratio: float) -> dict[str, pd.DataFrame]:
