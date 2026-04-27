@@ -1,0 +1,28 @@
+# Liste des Cloud Builders : https://console.cloud.google.com/gcr/images/cloud-builders/GLOBAL
+steps:
+  # --- ÉTAPE 1 : Intégration Continue (Tests) ---
+  - name: "ghcr.io/astral-sh/uv:python3.12-trixie-slim"
+    id: CI
+    entrypoint: /bin/sh
+    args:
+      - "-c"
+      - "chmod a+x install.sh && ./install.sh && uv sync && uv run pytest ."
+    env:
+      - "UV_CACHE_DIR=/root/.cache/uv" 
+
+  # --- ÉTAPE 2 : Déploiement Continu (Entraînement Kedro) ---
+  - name: "ghcr.io/astral-sh/uv:python3.12-trixie-slim"
+    id: CD
+    entrypoint: /bin/bash
+    args:
+      - "-c"
+      - "chmod a+x install.sh && ./install.sh && uv run kedro run"
+    env:
+      - "ENV=$BRANCH_NAME"
+      - "MLFLOW_SERVER=$_MLFLOW_SERVER"
+      - "DO_NOT_TRACK=1"
+      - "UV_CACHE_DIR=/root/.cache/uv"
+    waitFor: ["CI"]
+
+# N'oublie pas de mettre le bon nom pour ton bucket ici :
+logs_bucket: gs://purchase-predict-ryad/logs_build_cloud_build
